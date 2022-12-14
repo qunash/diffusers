@@ -848,7 +848,10 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument("--dump_path", default=None, type=str, required=True, help="Path to the output model.")
+    parser.add_argument("--sd_version", default="v1", type=str, required=True, help="Stable Diffusion version. Should be one of ['v1', 'v2', 'v2.1']")
     args = parser.parse_args()
+
+    sd_version = args.sd_version
 
     image_size = args.image_size
     prediction_type = args.prediction_type
@@ -863,53 +866,66 @@ if __name__ == "__main__":
         global_step = None
     checkpoint = checkpoint["state_dict"]
 
-    upcast_attention = False
+    upcast_attention = sd_version == "v2.1"
     if args.original_config_file is None:
         key_name = "model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight"
 
-        if key_name in checkpoint and checkpoint[key_name].shape[-1] == 1024:
-            if not os.path.isfile("v2-inference-v.yaml"):
-                # model_type = "v2"
-                os.system(
-                    "wget https://raw.githubusercontent.com/Stability-AI/stablediffusion/main/configs/stable-diffusion/v2-inference-v.yaml"
-                    " -O v2-inference-v.yaml"
-                )
-            args.original_config_file = "./v2-inference-v.yaml"
+        # if key_name in checkpoint and checkpoint[key_name].shape[-1] == 1024:
+        #     # model_type = "v2"
+        #     os.system(
+        #         "wget https://raw.githubusercontent.com/Stability-AI/stablediffusion/main/configs/stable-diffusion/v2-inference-v.yaml"
+        #     )
+        #     args.original_config_file = "./v2-inference-v.yaml"
+        # else:
+        #     # model_type = "v1"
+        #     os.system(
+        #         "wget https://raw.githubusercontent.com/CompVis/stable-diffusion/main/configs/stable-diffusion/v1-inference.yaml"
+        #     )
+        #     args.original_config_file = "./v1-inference.yaml"
 
-            if global_step == 110000:
-                # v2.1 needs to upcast attention
-                upcast_attention = True
-        else:
-            if not os.path.isfile("v1-inference.yaml"):
-                # model_type = "v1"
-                os.system(
-                    "wget https://raw.githubusercontent.com/CompVis/stable-diffusion/main/configs/stable-diffusion/v1-inference.yaml"
-                    " -O v1-inference.yaml"
-                )
+        if sd_version == "v1":
+            os.system(
+                "wget https://raw.githubusercontent.com/CompVis/stable-diffusion/main/configs/stable-diffusion/v1-inference.yaml"
+            )
             args.original_config_file = "./v1-inference.yaml"
+            
+        elif sd_version == "v2" or sd_version == "v2.1":
+            os.system(
+                "wget https://raw.githubusercontent.com/Stability-AI/stablediffusion/main/configs/stable-diffusion/v2-inference-v.yaml"
+            )
+            args.original_config_file = "./v2-inference-v.yaml"
 
     original_config = OmegaConf.load(args.original_config_file)
 
-    if args.num_in_channels is not None:
-        original_config["model"]["params"]["unet_config"]["params"]["in_channels"] = args.num_in_channels
+    # if (
+    #     "parameterization" in original_config["model"]["params"]
+    #     and original_config["model"]["params"]["parameterization"] == "v"
+    # ):
+    #     if prediction_type is None:
+    #         # NOTE: For stable diffusion 2 base it is recommended to pass `prediction_type=="epsilon"`
+    #         # as it relies on a brittle global step parameter here
+    #         prediction_type = "v_prediction"#"epsilon" if global_step == 875000 else "v_prediction"
+    #     if image_size is None:
+    #         # NOTE: For stable diffusion 2 base one has to pass `image_size==512`
+    #         # as it relies on a brittle global step parameter here
+    #         image_size = 768#512 if global_step == 875000 else 768
+    # else:
+    #     if prediction_type is None:
+    #         prediction_type = "epsilon"
+    #     if image_size is None:
+    #         image_size = 512
 
-    if (
-        "parameterization" in original_config["model"]["params"]
-        and original_config["model"]["params"]["parameterization"] == "v"
-    ):
-        if prediction_type is None:
-            # NOTE: For stable diffusion 2 base it is recommended to pass `prediction_type=="epsilon"`
-            # as it relies on a brittle global step parameter here
-            prediction_type = "epsilon" if global_step == 875000 else "v_prediction"
-        if image_size is None:
-            # NOTE: For stable diffusion 2 base one has to pass `image_size==512`
-            # as it relies on a brittle global step parameter here
-            image_size = 512 if global_step == 875000 else 768
-    else:
+    if sd_version == "v1" or sd_version == "v2":
         if prediction_type is None:
             prediction_type = "epsilon"
         if image_size is None:
             image_size = 512
+
+    elif sd_version == "v2.1":
+        if prediction_type is None:
+            prediction_type = "v_prediction"
+        if image_size is None:
+            image_size = 768
 
     num_train_timesteps = original_config.model.params.timesteps
     beta_start = original_config.model.params.linear_start
