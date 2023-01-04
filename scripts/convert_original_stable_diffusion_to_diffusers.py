@@ -962,73 +962,75 @@ if __name__ == "__main__":
         scheduler = scheduler
     else:
         raise ValueError(f"Scheduler of type {args.scheduler_type} doesn't exist!")
+    try:
+        # Convert the UNet2DConditionModel model.
+        unet_config = create_unet_diffusers_config(original_config, image_size=image_size)
+        unet_config["upcast_attention"] = upcast_attention
+        unet = UNet2DConditionModel(**unet_config)
 
-    # Convert the UNet2DConditionModel model.
-    unet_config = create_unet_diffusers_config(original_config, image_size=image_size)
-    unet_config["upcast_attention"] = upcast_attention
-    unet = UNet2DConditionModel(**unet_config)
-
-    converted_unet_checkpoint = convert_ldm_unet_checkpoint(
-        checkpoint, unet_config, path=args.checkpoint_path, extract_ema=args.extract_ema
-    )
-
-    unet.load_state_dict(converted_unet_checkpoint)
-
-    # Convert the VAE model.
-    vae_config = create_vae_diffusers_config(original_config, image_size=image_size)
-    converted_vae_checkpoint = convert_ldm_vae_checkpoint(checkpoint, vae_config)
-
-    vae = AutoencoderKL(**vae_config)
-    vae.load_state_dict(converted_vae_checkpoint)
-
-    # Convert the text model.
-    model_type = args.pipeline_type
-    if model_type is None:
-        model_type = original_config.model.params.cond_stage_config.target.split(".")[-1]
-
-    if model_type == "FrozenOpenCLIPEmbedder":
-        text_model = convert_open_clip_checkpoint(checkpoint)
-        tokenizer = CLIPTokenizer.from_pretrained("stabilityai/stable-diffusion-2", subfolder="tokenizer")
-        pipe = StableDiffusionPipeline(
-            vae=vae,
-            text_encoder=text_model,
-            tokenizer=tokenizer,
-            unet=unet,
-            scheduler=scheduler,
-            safety_checker=None,
-            feature_extractor=None,
-            requires_safety_checker=False,
+        converted_unet_checkpoint = convert_ldm_unet_checkpoint(
+            checkpoint, unet_config, path=args.checkpoint_path, extract_ema=args.extract_ema
         )
-    elif model_type == "PaintByExample":
-        vision_model = convert_paint_by_example_checkpoint(checkpoint)
-        tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
-        feature_extractor = AutoFeatureExtractor.from_pretrained("CompVis/stable-diffusion-safety-checker")
-        pipe = PaintByExamplePipeline(
-            vae=vae,
-            image_encoder=vision_model,
-            unet=unet,
-            scheduler=scheduler,
-            safety_checker=None,
-            feature_extractor=feature_extractor,
-        )
-    elif model_type == "FrozenCLIPEmbedder":
-        text_model = convert_ldm_clip_checkpoint(checkpoint)
-        tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
-        safety_checker = StableDiffusionSafetyChecker.from_pretrained("CompVis/stable-diffusion-safety-checker")
-        feature_extractor = AutoFeatureExtractor.from_pretrained("CompVis/stable-diffusion-safety-checker")
-        pipe = StableDiffusionPipeline(
-            vae=vae,
-            text_encoder=text_model,
-            tokenizer=tokenizer,
-            unet=unet,
-            scheduler=scheduler,
-            safety_checker=safety_checker,
-            feature_extractor=feature_extractor,
-        )
-    else:
-        text_config = create_ldm_bert_config(original_config)
-        text_model = convert_ldm_bert_checkpoint(checkpoint, text_config)
-        tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
-        pipe = LDMTextToImagePipeline(vqvae=vae, bert=text_model, tokenizer=tokenizer, unet=unet, scheduler=scheduler)
 
-    pipe.save_pretrained(args.dump_path)
+        unet.load_state_dict(converted_unet_checkpoint)
+
+        # Convert the VAE model.
+        vae_config = create_vae_diffusers_config(original_config, image_size=image_size)
+        converted_vae_checkpoint = convert_ldm_vae_checkpoint(checkpoint, vae_config)
+
+        vae = AutoencoderKL(**vae_config)
+        vae.load_state_dict(converted_vae_checkpoint)
+
+        # Convert the text model.
+        model_type = args.pipeline_type
+        if model_type is None:
+            model_type = original_config.model.params.cond_stage_config.target.split(".")[-1]
+
+        if model_type == "FrozenOpenCLIPEmbedder":
+            text_model = convert_open_clip_checkpoint(checkpoint)
+            tokenizer = CLIPTokenizer.from_pretrained("stabilityai/stable-diffusion-2", subfolder="tokenizer")
+            pipe = StableDiffusionPipeline(
+                vae=vae,
+                text_encoder=text_model,
+                tokenizer=tokenizer,
+                unet=unet,
+                scheduler=scheduler,
+                safety_checker=None,
+                feature_extractor=None,
+                requires_safety_checker=False,
+            )
+        elif model_type == "PaintByExample":
+            vision_model = convert_paint_by_example_checkpoint(checkpoint)
+            tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
+            feature_extractor = AutoFeatureExtractor.from_pretrained("CompVis/stable-diffusion-safety-checker")
+            pipe = PaintByExamplePipeline(
+                vae=vae,
+                image_encoder=vision_model,
+                unet=unet,
+                scheduler=scheduler,
+                safety_checker=None,
+                feature_extractor=feature_extractor,
+            )
+        elif model_type == "FrozenCLIPEmbedder":
+            text_model = convert_ldm_clip_checkpoint(checkpoint)
+            tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
+            safety_checker = StableDiffusionSafetyChecker.from_pretrained("CompVis/stable-diffusion-safety-checker")
+            feature_extractor = AutoFeatureExtractor.from_pretrained("CompVis/stable-diffusion-safety-checker")
+            pipe = StableDiffusionPipeline(
+                vae=vae,
+                text_encoder=text_model,
+                tokenizer=tokenizer,
+                unet=unet,
+                scheduler=scheduler,
+                safety_checker=safety_checker,
+                feature_extractor=feature_extractor,
+            )
+        else:
+            text_config = create_ldm_bert_config(original_config)
+            text_model = convert_ldm_bert_checkpoint(checkpoint, text_config)
+            tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
+            pipe = LDMTextToImagePipeline(vqvae=vae, bert=text_model, tokenizer=tokenizer, unet=unet, scheduler=scheduler)
+
+        pipe.save_pretrained(args.dump_path)
+    except Exception as e:
+        print(f"Failed to convert {args.checkpoint_path} to {args.dump_path} with error {e}")
