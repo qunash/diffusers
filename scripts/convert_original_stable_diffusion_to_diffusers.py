@@ -780,189 +780,194 @@ def convert_open_clip_checkpoint(checkpoint):
     return text_model
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def main():
+    print("Here we go.")
 
-    parser.add_argument(
-        "--checkpoint_path", default=None, type=str, required=True, help="Path to the checkpoint to convert."
-    )
-    # !wget https://raw.githubusercontent.com/CompVis/stable-diffusion/main/configs/stable-diffusion/v1-inference.yaml
-    parser.add_argument(
-        "--original_config_file",
-        default=None,
-        type=str,
-        help="The YAML config file corresponding to the original architecture.",
-    )
-    parser.add_argument(
-        "--num_in_channels",
-        default=None,
-        type=int,
-        help="The number of input channels. If `None` number of input channels will be automatically inferred.",
-    )
-    parser.add_argument(
-        "--scheduler_type",
-        default="pndm",
-        type=str,
-        help="Type of scheduler to use. Should be one of ['pndm', 'lms', 'ddim', 'euler', 'euler-ancest', 'dpm']",
-    )
-    parser.add_argument(
-        "--pipeline_type",
-        default=None,
-        type=str,
-        help="The pipeline type. If `None` pipeline will be automatically inferred.",
-    )
-    parser.add_argument(
-        "--image_size",
-        default=None,
-        type=int,
-        help=(
-            "The image size that the model was trained on. Use 512 for Stable Diffusion v1.X and Stable Siffusion v2"
-            " Base. Use 768 for Stable Diffusion v2."
-        ),
-    )
-    parser.add_argument(
-        "--prediction_type",
-        default=None,
-        type=str,
-        help=(
-            "The prediction type that the model was trained on. Use 'epsilon' for Stable Diffusion v1.X and Stable"
-            " Siffusion v2 Base. Use 'v-prediction' for Stable Diffusion v2."
-        ),
-    )
-    parser.add_argument(
-        "--extract_ema",
-        action="store_true",
-        help=(
-            "Only relevant for checkpoints that have both EMA and non-EMA weights. Whether to extract the EMA weights"
-            " or not. Defaults to `False`. Add `--extract_ema` to extract the EMA weights. EMA weights usually yield"
-            " higher quality images for inference. Non-EMA weights are usually better to continue fine-tuning."
-        ),
-    )
-    parser.add_argument(
-        "--upcast_attn",
-        default=False,
-        type=bool,
-        help=(
-            "Whether the attention computation should always be upcasted. This is necessary when running stable"
-            " diffusion 2.1."
-        ),
-    )
-    parser.add_argument("--dump_path", default=None, type=str, required=True, help="Path to the output model.")
-    parser.add_argument("--sd_version", default="v1", type=str, required=True, help="Stable Diffusion version. Should be one of ['v1', 'v2', 'v2.1']")
-    args = parser.parse_args()
-
-    sd_version = args.sd_version
-
-    image_size = args.image_size
-    prediction_type = args.prediction_type
-
-    checkpoint = torch.load(args.checkpoint_path)
-
-    # Sometimes models don't have the global_step item
-    if "global_step" in checkpoint:
-        global_step = checkpoint["global_step"]
-    else:
-        print("global_step key not found in model")
-        global_step = None
-    checkpoint = checkpoint["state_dict"]
-
-    upcast_attention = sd_version == "v2.1"
-    if args.original_config_file is None:
-        key_name = "model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight"
-
-        # if key_name in checkpoint and checkpoint[key_name].shape[-1] == 1024:
-        #     # model_type = "v2"
-        #     os.system(
-        #         "wget https://raw.githubusercontent.com/Stability-AI/stablediffusion/main/configs/stable-diffusion/v2-inference-v.yaml"
-        #     )
-        #     args.original_config_file = "./v2-inference-v.yaml"
-        # else:
-        #     # model_type = "v1"
-        #     os.system(
-        #         "wget https://raw.githubusercontent.com/CompVis/stable-diffusion/main/configs/stable-diffusion/v1-inference.yaml"
-        #     )
-        #     args.original_config_file = "./v1-inference.yaml"
-
-        if sd_version == "v1":
-            os.system(
-                "wget https://raw.githubusercontent.com/CompVis/stable-diffusion/main/configs/stable-diffusion/v1-inference.yaml"
-            )
-            args.original_config_file = "./v1-inference.yaml"
-            
-        elif sd_version == "v2" or sd_version == "v2.1":
-            os.system(
-                "wget https://raw.githubusercontent.com/Stability-AI/stablediffusion/main/configs/stable-diffusion/v2-inference-v.yaml"
-            )
-            args.original_config_file = "./v2-inference-v.yaml"
-
-    original_config = OmegaConf.load(args.original_config_file)
-
-    # if (
-    #     "parameterization" in original_config["model"]["params"]
-    #     and original_config["model"]["params"]["parameterization"] == "v"
-    # ):
-    #     if prediction_type is None:
-    #         # NOTE: For stable diffusion 2 base it is recommended to pass `prediction_type=="epsilon"`
-    #         # as it relies on a brittle global step parameter here
-    #         prediction_type = "v_prediction"#"epsilon" if global_step == 875000 else "v_prediction"
-    #     if image_size is None:
-    #         # NOTE: For stable diffusion 2 base one has to pass `image_size==512`
-    #         # as it relies on a brittle global step parameter here
-    #         image_size = 768#512 if global_step == 875000 else 768
-    # else:
-    #     if prediction_type is None:
-    #         prediction_type = "epsilon"
-    #     if image_size is None:
-    #         image_size = 512
-
-    if sd_version == "v1" or sd_version == "v2":
-        if prediction_type is None:
-            prediction_type = "epsilon"
-        if image_size is None:
-            image_size = 512
-
-    elif sd_version == "v2.1":
-        if prediction_type is None:
-            prediction_type = "v_prediction"
-        if image_size is None:
-            image_size = 768
-
-    num_train_timesteps = original_config.model.params.timesteps
-    beta_start = original_config.model.params.linear_start
-    beta_end = original_config.model.params.linear_end
-
-    scheduler = DDIMScheduler(
-        beta_end=beta_end,
-        beta_schedule="scaled_linear",
-        beta_start=beta_start,
-        num_train_timesteps=num_train_timesteps,
-        steps_offset=1,
-        clip_sample=False,
-        set_alpha_to_one=False,
-        prediction_type=prediction_type,
-    )
-    # make sure scheduler works correctly with DDIM
-    scheduler.register_to_config(clip_sample=False)
-
-    if args.scheduler_type == "pndm":
-        config = dict(scheduler.config)
-        config["skip_prk_steps"] = True
-        scheduler = PNDMScheduler.from_config(config)
-    elif args.scheduler_type == "lms":
-        scheduler = LMSDiscreteScheduler.from_config(scheduler.config)
-    elif args.scheduler_type == "heun":
-        scheduler = HeunDiscreteScheduler.from_config(scheduler.config)
-    elif args.scheduler_type == "euler":
-        scheduler = EulerDiscreteScheduler.from_config(scheduler.config)
-    elif args.scheduler_type == "euler-ancestral":
-        scheduler = EulerAncestralDiscreteScheduler.from_config(scheduler.config)
-    elif args.scheduler_type == "dpm":
-        scheduler = DPMSolverMultistepScheduler.from_config(scheduler.config)
-    elif args.scheduler_type == "ddim":
-        scheduler = scheduler
-    else:
-        raise ValueError(f"Scheduler of type {args.scheduler_type} doesn't exist!")
     try:
+            
+        parser = argparse.ArgumentParser()
+
+        parser.add_argument(
+            "--checkpoint_path", default=None, type=str, required=True, help="Path to the checkpoint to convert."
+        )
+        # !wget https://raw.githubusercontent.com/CompVis/stable-diffusion/main/configs/stable-diffusion/v1-inference.yaml
+        parser.add_argument(
+            "--original_config_file",
+            default=None,
+            type=str,
+            help="The YAML config file corresponding to the original architecture.",
+        )
+        parser.add_argument(
+            "--num_in_channels",
+            default=None,
+            type=int,
+            help="The number of input channels. If `None` number of input channels will be automatically inferred.",
+        )
+        parser.add_argument(
+            "--scheduler_type",
+            default="pndm",
+            type=str,
+            help="Type of scheduler to use. Should be one of ['pndm', 'lms', 'ddim', 'euler', 'euler-ancest', 'dpm']",
+        )
+        parser.add_argument(
+            "--pipeline_type",
+            default=None,
+            type=str,
+            help="The pipeline type. If `None` pipeline will be automatically inferred.",
+        )
+        parser.add_argument(
+            "--image_size",
+            default=None,
+            type=int,
+            help=(
+                "The image size that the model was trained on. Use 512 for Stable Diffusion v1.X and Stable Siffusion v2"
+                " Base. Use 768 for Stable Diffusion v2."
+            ),
+        )
+        parser.add_argument(
+            "--prediction_type",
+            default=None,
+            type=str,
+            help=(
+                "The prediction type that the model was trained on. Use 'epsilon' for Stable Diffusion v1.X and Stable"
+                " Siffusion v2 Base. Use 'v-prediction' for Stable Diffusion v2."
+            ),
+        )
+        parser.add_argument(
+            "--extract_ema",
+            action="store_true",
+            help=(
+                "Only relevant for checkpoints that have both EMA and non-EMA weights. Whether to extract the EMA weights"
+                " or not. Defaults to `False`. Add `--extract_ema` to extract the EMA weights. EMA weights usually yield"
+                " higher quality images for inference. Non-EMA weights are usually better to continue fine-tuning."
+            ),
+        )
+        parser.add_argument(
+            "--upcast_attn",
+            default=False,
+            type=bool,
+            help=(
+                "Whether the attention computation should always be upcasted. This is necessary when running stable"
+                " diffusion 2.1."
+            ),
+        )
+        parser.add_argument("--dump_path", default=None, type=str, required=True, help="Path to the output model.")
+        parser.add_argument("--sd_version", default="v1", type=str, required=True, help="Stable Diffusion version. Should be one of ['v1', 'v2', 'v2.1']")
+        args = parser.parse_args()
+
+        sd_version = args.sd_version
+
+        image_size = args.image_size
+        prediction_type = args.prediction_type
+
+        checkpoint = torch.load(args.checkpoint_path)
+
+        # Sometimes models don't have the global_step item
+        if "global_step" in checkpoint:
+            global_step = checkpoint["global_step"]
+        else:
+            print("global_step key not found in model")
+            global_step = None
+        checkpoint = checkpoint["state_dict"]
+
+        upcast_attention = sd_version == "v2.1"
+        if args.original_config_file is None:
+            key_name = "model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight"
+
+            # if key_name in checkpoint and checkpoint[key_name].shape[-1] == 1024:
+            #     # model_type = "v2"
+            #     os.system(
+            #         "wget https://raw.githubusercontent.com/Stability-AI/stablediffusion/main/configs/stable-diffusion/v2-inference-v.yaml"
+            #     )
+            #     args.original_config_file = "./v2-inference-v.yaml"
+            # else:
+            #     # model_type = "v1"
+            #     os.system(
+            #         "wget https://raw.githubusercontent.com/CompVis/stable-diffusion/main/configs/stable-diffusion/v1-inference.yaml"
+            #     )
+            #     args.original_config_file = "./v1-inference.yaml"
+
+            if sd_version == "v1":
+                os.system(
+                    "wget https://raw.githubusercontent.com/CompVis/stable-diffusion/main/configs/stable-diffusion/v1-inference.yaml"
+                )
+                args.original_config_file = "./v1-inference.yaml"
+                
+            elif sd_version == "v2" or sd_version == "v2.1":
+                os.system(
+                    "wget https://raw.githubusercontent.com/Stability-AI/stablediffusion/main/configs/stable-diffusion/v2-inference-v.yaml"
+                )
+                args.original_config_file = "./v2-inference-v.yaml"
+
+        original_config = OmegaConf.load(args.original_config_file)
+
+        # if (
+        #     "parameterization" in original_config["model"]["params"]
+        #     and original_config["model"]["params"]["parameterization"] == "v"
+        # ):
+        #     if prediction_type is None:
+        #         # NOTE: For stable diffusion 2 base it is recommended to pass `prediction_type=="epsilon"`
+        #         # as it relies on a brittle global step parameter here
+        #         prediction_type = "v_prediction"#"epsilon" if global_step == 875000 else "v_prediction"
+        #     if image_size is None:
+        #         # NOTE: For stable diffusion 2 base one has to pass `image_size==512`
+        #         # as it relies on a brittle global step parameter here
+        #         image_size = 768#512 if global_step == 875000 else 768
+        # else:
+        #     if prediction_type is None:
+        #         prediction_type = "epsilon"
+        #     if image_size is None:
+        #         image_size = 512
+
+        if sd_version == "v1" or sd_version == "v2":
+            if prediction_type is None:
+                prediction_type = "epsilon"
+            if image_size is None:
+                image_size = 512
+
+        elif sd_version == "v2.1":
+            if prediction_type is None:
+                prediction_type = "v_prediction"
+            if image_size is None:
+                image_size = 768
+
+        num_train_timesteps = original_config.model.params.timesteps
+        beta_start = original_config.model.params.linear_start
+        beta_end = original_config.model.params.linear_end
+
+        scheduler = DDIMScheduler(
+            beta_end=beta_end,
+            beta_schedule="scaled_linear",
+            beta_start=beta_start,
+            num_train_timesteps=num_train_timesteps,
+            steps_offset=1,
+            clip_sample=False,
+            set_alpha_to_one=False,
+            prediction_type=prediction_type,
+        )
+        # make sure scheduler works correctly with DDIM
+        scheduler.register_to_config(clip_sample=False)
+
+        if args.scheduler_type == "pndm":
+            config = dict(scheduler.config)
+            config["skip_prk_steps"] = True
+            scheduler = PNDMScheduler.from_config(config)
+        elif args.scheduler_type == "lms":
+            scheduler = LMSDiscreteScheduler.from_config(scheduler.config)
+        elif args.scheduler_type == "heun":
+            scheduler = HeunDiscreteScheduler.from_config(scheduler.config)
+        elif args.scheduler_type == "euler":
+            scheduler = EulerDiscreteScheduler.from_config(scheduler.config)
+        elif args.scheduler_type == "euler-ancestral":
+            scheduler = EulerAncestralDiscreteScheduler.from_config(scheduler.config)
+        elif args.scheduler_type == "dpm":
+            scheduler = DPMSolverMultistepScheduler.from_config(scheduler.config)
+        elif args.scheduler_type == "ddim":
+            scheduler = scheduler
+        else:
+            raise ValueError(f"Scheduler of type {args.scheduler_type} doesn't exist!")
+        
+
         # Convert the UNet2DConditionModel model.
         unet_config = create_unet_diffusers_config(original_config, image_size=image_size)
         unet_config["upcast_attention"] = upcast_attention
@@ -1046,3 +1051,7 @@ if __name__ == "__main__":
         pipe.save_pretrained(args.dump_path)
     except Exception as e:
         print(f"Failed to convert {args.checkpoint_path} to {args.dump_path} with error {e}")
+
+
+if __name__ == "__main__":
+    main()
