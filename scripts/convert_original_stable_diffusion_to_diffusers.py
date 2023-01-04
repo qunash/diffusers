@@ -966,19 +966,25 @@ if __name__ == "__main__":
         # Convert the UNet2DConditionModel model.
         unet_config = create_unet_diffusers_config(original_config, image_size=image_size)
         unet_config["upcast_attention"] = upcast_attention
+        print(f"unet_config: {unet_config}")
         unet = UNet2DConditionModel(**unet_config)
+        print(f"unet: {unet}")
 
         converted_unet_checkpoint = convert_ldm_unet_checkpoint(
             checkpoint, unet_config, path=args.checkpoint_path, extract_ema=args.extract_ema
         )
+        print(f"converted_unet_checkpoint: {converted_unet_checkpoint}")
 
         unet.load_state_dict(converted_unet_checkpoint)
 
         # Convert the VAE model.
         vae_config = create_vae_diffusers_config(original_config, image_size=image_size)
+        print(f"vae_config: {vae_config}")
         converted_vae_checkpoint = convert_ldm_vae_checkpoint(checkpoint, vae_config)
+        print(f"converted_vae_checkpoint: {converted_vae_checkpoint}")
 
         vae = AutoencoderKL(**vae_config)
+        print(f"vae: {vae}")
         vae.load_state_dict(converted_vae_checkpoint)
 
         # Convert the text model.
@@ -1031,6 +1037,12 @@ if __name__ == "__main__":
             tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
             pipe = LDMTextToImagePipeline(vqvae=vae, bert=text_model, tokenizer=tokenizer, unet=unet, scheduler=scheduler)
 
+        print(f"text_config: {text_config}")
+        print(f"text_model: {text_model}")
+        print(f"tokenizer: {tokenizer}")
+        print(f"pipe: {pipe}")
+
+        
         pipe.save_pretrained(args.dump_path)
     except Exception as e:
         print(f"Failed to convert {args.checkpoint_path} to {args.dump_path} with error {e}")
