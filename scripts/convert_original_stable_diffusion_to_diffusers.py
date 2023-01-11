@@ -644,7 +644,7 @@ def convert_ldm_clip_checkpoint(checkpoint):
         if key.startswith("cond_stage_model.transformer"):
             text_model_dict[key[len("cond_stage_model.transformer.") :]] = checkpoint[key]
 
-    text_model.load_state_dict(text_model_dict)
+    text_model.load_state_dict(text_model_dict, strict=False)
 
     return text_model
 
@@ -686,7 +686,7 @@ def convert_paint_by_example_checkpoint(checkpoint):
             text_model_dict[key[len("cond_stage_model.transformer.") :]] = checkpoint[key]
 
     # load clip vision
-    model.model.load_state_dict(text_model_dict)
+    model.model.load_state_dict(text_model_dict, strict=False)
 
     # load mapper
     keys_mapper = {
@@ -717,14 +717,14 @@ def convert_paint_by_example_checkpoint(checkpoint):
             shape = value.shape[0] // num_splits
             mapped_weights[new_name] = value[i * shape : (i + 1) * shape]
 
-    model.mapper.load_state_dict(mapped_weights)
+    model.mapper.load_state_dict(mapped_weights, strict=False)
 
     # load final layer norm
     model.final_layer_norm.load_state_dict(
         {
             "bias": checkpoint["cond_stage_model.final_ln.bias"],
             "weight": checkpoint["cond_stage_model.final_ln.weight"],
-        }
+        }, strict=False
     )
 
     # load final proj
@@ -775,7 +775,7 @@ def convert_open_clip_checkpoint(checkpoint):
 
                 text_model_dict[new_key] = checkpoint[key]
 
-    text_model.load_state_dict(text_model_dict)
+    text_model.load_state_dict(text_model_dict, strict=False)
 
     return text_model
 
@@ -980,7 +980,7 @@ def main():
         )
         print(f"converted_unet_checkpoint: {converted_unet_checkpoint}")
 
-        unet.load_state_dict(converted_unet_checkpoint)
+        unet.load_state_dict(converted_unet_checkpoint, strict=False)
 
         # Convert the VAE model.
         vae_config = create_vae_diffusers_config(original_config, image_size=image_size)
@@ -990,7 +990,7 @@ def main():
 
         vae = AutoencoderKL(**vae_config)
         print(f"vae: {vae}")
-        vae.load_state_dict(converted_vae_checkpoint)
+        vae.load_state_dict(converted_vae_checkpoint, strict=False)
 
         # Convert the text model.
         model_type = args.pipeline_type
