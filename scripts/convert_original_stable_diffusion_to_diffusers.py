@@ -1042,10 +1042,10 @@ def main():
             tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
             pipe = LDMTextToImagePipeline(vqvae=vae, bert=text_model, tokenizer=tokenizer, unet=unet, scheduler=scheduler)
 
-        print(f"text_config: {text_config}")
-        print(f"text_model: {text_model}")
-        print(f"tokenizer: {tokenizer}")
-        print(f"pipe: {pipe}")
+            print(f"text_config: {text_config}")
+            print(f"text_model: {text_model}")
+            print(f"tokenizer: {tokenizer}")
+            print(f"pipe: {pipe}")
 
         
         pipe.save_pretrained(args.dump_path)
